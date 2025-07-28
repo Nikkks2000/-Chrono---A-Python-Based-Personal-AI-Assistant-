@@ -1,0 +1,1 @@
+env_vars = dotenv_values(".env") 

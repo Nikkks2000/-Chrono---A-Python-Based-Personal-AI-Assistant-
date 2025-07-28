@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Glowing Pulse Animation with Mic Toggle</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 10vh; /* Changed from 100vh to 10vh as it's within a PyQt5 window now */
+            background-color: #00001a; /* Very dark blue/black background for the entire screen */
+            font-family: 'Inter', sans-serif;
+            color: #fff;
+        }
+        canvas {
+            display: block;
+            background-color: transparent; /* Canvas background is transparent */
+            width: 100vw; /* Make canvas fill the viewport width */
+            height: 100vh; /* Make canvas fill the viewport height */
+        }
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 15px 25px;
+            border-radius: 15px;
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.3);
+            flex-wrap: wrap;
+            justify-content: center;
+            transition: opacity 0.3s ease;
+        }
+        #controls.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        #controls label {
+            font-size: 14px;
+            color: #e0e0e0;
+            white-space: nowrap;
+        }
+        #controls input[type="range"],
+        #controls input[type="color"],
+        #controls select {
+            border-radius: 8px;
+            border: 1px solid #00ffff;
+            background-color: #001a33;
+            color: #00ffff;
+            padding: 5px 8px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        #controls input[type="range"]::-webkit-slider-thumb {
+            background: #00ffff;
+            border-radius: 50%;
+        }
+        #controls button {
+            background-color: #00ffff;
+            color: #001a33;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 10px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background-color 0.3s ease, transform 0.1s ease;
+            box-shadow: 0 0 15px rgba(0, 255, 255, 0.4);
+        }
+        #controls button:hover {
+            background-color: #00e6e6;
+            transform: translateY(-2px);
+        }
+        #micToggleButton {
+            background-color: #ff4d4d;
+            color: white;
+            box-shadow: 0 0 15px rgba(255, 77, 77, 0.4);
+        }
+        #micToggleButton.active {
+            background-color: #00ffcc;
+            box-shadow: 0 0 15px rgba(0, 255, 204, 0.5);
+        }
+        #mic-icon {
+            font-family: 'Font Awesome 5 Free';
+            font-weight: 900;
+            font-size: 40px;
+            color: #00ffff; /* This is the color of the mic icon */
+            text-shadow: 0 0 10px #00ffff, 0 0 20px #00ffff;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%); /* Centering the icon */
+            opacity: 0; /* Initially hidden, controlled by JS */
+        }
+        @media (max-width: 768px) {
+            #controls {
+                flex-direction: column;
+                gap: 10px;
+                padding: 10px;
+                width: 90%;
+            }
+            #controls label, #controls input, #controls select, #controls button {
+                width: 100%;
+                text-align: center;
+            }
+        }
+    </style>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+</head>
+<body>
+<canvas id="pulseCanvas"></canvas>
+<div id="mic-icon" class="fas fa-microphone-slash"></div>
+<div id="controls">
+    <label for="colorPicker">Color:</label>
+    <input type="color" id="colorPicker" value="#00ffff">
+
+    <label for="loopDuration">Loop Duration (s):</label>
+    <input type="range" id="loopDuration" min="1" max="10" value="3" step="0.5">
+    <span id="durationValue">3.0s</span>
+
+    <label for="resolutionSelect">Resolution:</label>
+    <select id="resolutionSelect">
+        <option value="auto">Auto (Full Window)</option>
+        <option value="480x270">480x270</option>
+        <option value="640x360">640x360</option>
+        <option value="800x450">800x450</option>
+        <option value="1280x720">1280x720 (HD)</option>
+        <option value="1920x1080">1920x1080 (Full HD)</option>
+    </select>
+
+    <button id="resetButton">Reset</button>
+    <button id="micToggleButton">Mic Off</button>
+    <button id="toggleControlsButton">Hide Controls</button>
+</div>
+<script>
+const canvas = document.getElementById('pulseCanvas');
+const ctx = canvas.getContext('2d');
+const micIcon = document.getElementById('mic-icon');
+const controlsDiv = document.getElementById('controls');
+const colorPicker = document.getElementById('colorPicker');
+const loopDurationInput = document.getElementById('loopDuration');
+const durationValueSpan = document.getElementById('durationValue');
+const resolutionSelect = document.getElementById('resolutionSelect');
+const resetButton = document.getElementById('resetButton');
+const toggleControlsButton = document.getElementById('toggleControlsButton');
+const micToggleButton = document.getElementById('micToggleButton');
+
+let animationFrameId;
+let startTime = null;
+let loopDuration = parseFloat(loopDurationInput.value) * 1000;
+let baseColor = colorPicker.value;
+let canvasWidth, canvasHeight;
+let centerX, centerY;
+let micOn = false;
+
+const particles = [];
+const numParticles = 50;
+const particleSpeed = 0.5;
+const particleMaxRadius = 1.5;
+
+function initParticles() {
+    particles.length = 0;
+    for (let i = 0; i < numParticles; i++) {
+        particles.push({
+            x: Math.random() * canvasWidth,
+            y: Math.random() * canvasHeight,
+            radius: Math.random() * particleMaxRadius,
+            opacity: Math.random() * 0.3 + 0.1,
+            speedX: (Math.random() - 0.5) * particleSpeed,
+            speedY: (Math.random() - 0.5) * particleSpeed
+        });
+    }
+}
+
+function updateCanvasSize() {
+    const selectedResolution = resolutionSelect.value;
+    if (selectedResolution === "auto") {
+        canvasWidth = window.innerWidth;
+        canvasHeight = window.innerHeight;
+    } else {
+        const [width, height] = selectedResolution.split('x').map(Number);
+        canvasWidth = width;
+        canvasHeight = height;
+    }
+    canvas.width = canvasWidth;
+    canvas.height = canvasHeight;
+    centerX = canvasWidth / 2;
+    centerY = canvasHeight / 2;
+    initParticles();
+}
+
+// Set initial size based on 'auto' or default selection
+updateCanvasSize();
+
+function draw(timestamp) {
+    if (!startTime) startTime = timestamp;
+    const elapsed = timestamp - startTime;
+    const progress = (elapsed % loopDuration) / loopDuration;
+
+    ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+
+    ctx.fillStyle = `rgba(${hexToRgb(baseColor).r}, ${hexToRgb(baseColor).g}, ${hexToRgb(baseColor).b}, 0.1)`;
+    particles.forEach(p => {
+        p.x += p.speedX;
+        p.y += p.speedY;
+        if (p.x < 0) p.x = canvasWidth;
+        if (p.x > canvasWidth) p.x = 0;
+        if (p.y < 0) p.y = canvasHeight;
+        if (p.y > canvasHeight) p.y = 0;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+        ctx.globalAlpha = p.opacity;
+        ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+
+    const glowLayers = 5;
+    const maxGlowRadius = Math.min(canvasWidth, canvasHeight) * 0.15;
+    for (let i = 0; i < glowLayers; i++) {
+        const glowRadius = maxGlowRadius * (1 - i / glowLayers);
+        const glowOpacity = 0.3 - (i * 0.05);
+        const glowBlur = 20 + (i * 10);
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, glowRadius, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${hexToRgb(baseColor).r}, ${hexToRgb(baseColor).g}, ${hexToRgb(baseColor).b}, ${glowOpacity})`;
+        ctx.shadowBlur = glowBlur;
+        ctx.shadowColor = baseColor;
+        ctx.fill();
+    }
+
+    const numRings = 4;
+    for (let i = 0; i < numRings; i++) {
+        const ringProgress = (progress + i / numRings) % 1;
+        const maxRadius = Math.min(canvasWidth, canvasHeight) * 0.45;
+        const radius = maxRadius * ringProgress;
+        const opacity = Math.pow(1 - ringProgress, 2);
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(${hexToRgb(baseColor).r}, ${hexToRgb(baseColor).g}, ${hexToRgb(baseColor).b}, ${opacity})`;
+        ctx.lineWidth = 2 + (1 - ringProgress) * 4;
+        ctx.shadowBlur = 15 * opacity;
+        ctx.shadowColor = baseColor;
+        ctx.stroke();
+    }
+
+    // Mic icon animation
+    const micPulseScale = 0.8 + Math.sin(progress * Math.PI * 2) * 0.2;
+    const micOpacity = micOn ? 0.7 + (Math.abs(Math.sin(progress * Math.PI * 2)) * 0.3) : 0.2;
+    micIcon.style.transform = `translate(-50%, -50%) scale(${micPulseScale})`;
+    micIcon.style.opacity = micOpacity;
+    micIcon.style.color = baseColor;
+    micIcon.style.textShadow = `0 0 ${10 * micPulseScale}px ${baseColor}, 0 0 ${20 * micPulseScale}px ${baseColor}, 0 0 ${30 * micPulseScale * micOpacity}px ${baseColor}`;
+
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = 'transparent';
+
+    animationFrameId = requestAnimationFrame(draw);
+}
+
+function hexToRgb(hex) {
+    const bigint = parseInt(hex.slice(1), 16);
+    return {
+        r: (bigint >> 16) & 255,
+        g: (bigint >> 8) & 255,
+        b: bigint & 255
+    };
+}
+
+colorPicker.addEventListener('input', e => baseColor = e.target.value);
+loopDurationInput.addEventListener('input', e => {
+    loopDuration = parseFloat(e.target.value) * 1000;
+    durationValueSpan.textContent = `${e.target.value}s`;
+    startTime = null;
+});
+resolutionSelect.addEventListener('change', () => {
+    updateCanvasSize();
+    cancelAnimationFrame(animationFrameId);
+    startTime = null;
+    animationFrameId = requestAnimationFrame(draw);
+});
+resetButton.addEventListener('click', () => {
+    colorPicker.value = "#00ffff";
+    baseColor = "#00ffff";
+    loopDurationInput.value = "3";
+    loopDuration = 3000;
+    durationValueSpan.textContent = "3.0s";
+    resolutionSelect.value = "auto";
+    updateCanvasSize();
+    cancelAnimationFrame(animationFrameId);
+    startTime = null;
+    animationFrameId = requestAnimationFrame(draw);
+});
+toggleControlsButton.addEventListener('click', () => {
+    controlsDiv.classList.toggle('hidden');
+    toggleControlsButton.textContent = controlsDiv.classList.contains('hidden') ? 'Show Controls' : 'Hide Controls';
+});
+micToggleButton.addEventListener('click', () => {
+    micOn = !micOn;
+    micToggleButton.textContent = micOn ? 'Mic On' : 'Mic Off';
+    micToggleButton.classList.toggle('active', micOn);
+    if (micOn) {
+        micIcon.classList.remove('fa-microphone-slash');
+        micIcon.classList.add('fa-microphone');
+    } else {
+        micIcon.classList.remove('fa-microphone');
+        micIcon.classList.add('fa-microphone-slash');
+    }
+});
+
+animationFrameId = requestAnimationFrame(draw);
+window.addEventListener('resize', () => {
+    updateCanvasSize();
+});
+
+// Initial state for mic toggle button and icon
+micToggleButton.textContent = micOn ? 'Mic On' : 'Mic Off';
+micToggleButton.classList.toggle('active', micOn);
+micIcon.classList.replace(micOn ? 'fa-microphone-slash' : 'fa-microphone', micOn ? 'fa-microphone' : 'fa-microphone-slash');
+</script>
+</body>
+</html>
